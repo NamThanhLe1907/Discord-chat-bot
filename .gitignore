@@ -1,0 +1,27 @@
+# Bỏ qua thư mục môi trường ảo
+env/
+venv/
+
+# Bỏ qua thư mục node_modules
+node_modules/
+
+# Bỏ qua file cấu hình môi trường
+.env
+
+# Bỏ qua các file log
+*.log
+
+# Bỏ qua file cache, tạm thời
+*.pyc
+__pycache__/
+
+# Bỏ qua Docker build files
+dockerfile
+
+# Bỏ qua thư mục của hệ thống
+.DS_Store
+Thumbs.db
+
+# Bỏ qua lockfile
+package-lock.json
+yarn.lock
