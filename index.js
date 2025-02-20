@@ -6,10 +6,11 @@ const {
     getChatHistory, 
     addActiveUser, 
     removeActiveUser, 
-    isActiveUser,
+    isActiveUser, 
     getUserChannel,
     getActiveUsers,
-    getUserProfile
+    getUserProfile,
+    vectorSearch
 } = require('./database');
 const { chatWithAI } = require('./modelAI');
 const { models } = require('./models'); // Import danh sách models
@@ -130,7 +131,15 @@ client.on('messageCreate', async message => {
     try {
         // Thêm reaction loading
         loadingReaction = await message.react(emoji.status.loading);
+        let images = [];
 
+        // 🖼️ Nếu tin nhắn có hình ảnh
+        if (message.attachments.size > 0) {
+            images = message.attachments.map(attachment => attachment.url);
+            console.log(`📌 DEBUG: User gửi ảnh: ${images}`);
+        }
+
+        
         // // Xử lý lịch sử
         // const dbHistory = await getChatHistory(userId, MAX_HISTORY);
         // const fullHistory = [
@@ -148,16 +157,19 @@ client.on('messageCreate', async message => {
 
                 // Lấy thông tin đã học từ lịch sử
         const userProfile = await getUserProfile(userId);
+        const similarHistory = await vectorSearch(userId, content, 2)
 
         // Tạo prompt thông minh dựa trên dữ liệu đã học
         const smartPrompt = `
-            Bạn là trợ lý ảo của **${displayName}**. 
+            Bạn là trợ lý ảo của **${displayName}**.
+            Dựa trên lịch sử gần đây: "${similarHistory.join('; ')}" 
             Dựa trên phân tích trước đây, bạn biết ${displayName} thường quan tâm đến: 
-            ${userProfile?.commonTopics.join(', ') || 'nhiều chủ đề khác nhau'}.
+            ${userProfile?.commonTopics.join(', ')|| 'nhiều chủ đề khác nhau'}.
 
             Hãy trả lời câu hỏi dưới đây một cách tự nhiên và phù hợp với sở thích của họ:
             "${content}"
         `;
+        
 
         // Gọi AI với prompt mới (KHÔNG dùng lịch sử)
         const rawResponse = await chatWithAI(
@@ -166,7 +178,8 @@ client.on('messageCreate', async message => {
                 { role: "user", content: content }
             ], 
             content, 
-            currentModel
+            currentModel,
+            images
         );
         aiResponse = rawResponse || "❌ Không nhận được phản hồi";
         // Validate và lưu lịch sử
