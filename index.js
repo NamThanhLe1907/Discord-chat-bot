@@ -38,21 +38,12 @@ client.once('ready', async () => {
     if (activeUsers.length > 0) {
         console.log(activeUsers);
     }
-    
-    const testChannelId = '1341118175374475316'; // Thay YOUR_CHANNEL_ID bằng ID kênh bạn muốn
-    const testChannel = await client.channels.fetch(testChannelId);
-
-    if (testChannel) {
-        console.log(`✅ Channel ${testChannelId} thuộc category: ${testChannel.parentId}`);
-    } else {
-        console.log("❌ Không tìm thấy channel!");
-    }
-});
 
 const allowedCategoryIds = ["1341118121565622393"];
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
+    if (!message.guild) return;
   
     const displayName = message.member?.displayName || message.author.username;
     const userId = message.author.id;
@@ -66,7 +57,29 @@ client.on('messageCreate', async message => {
     // let loadingReaction = null;
     // let aiResponse = "⚠️ Đang gặp sự cố kỹ thuật...";
 
+    if (!allowedCategoryIds.includes(currentCategory)) {
+        const savedChannelId = await getUserChannel(userId);
+        console.log(`📌 DEBUG: savedChannelId trong database = ${savedChannelId}`);
+        // Nếu đang ở channel đã lưu
+        if (savedChannelId === currentChannel.id) {
+            // Cho phép tiếp tục chat
+            return
+        }
+        else {
+            const savedChannel = await client.channels.fetch(savedChannelId).catch(console.error);
+            if (savedChannel) {
+                // Gửi thông báo vào channel đã lưu và tag user
+                savedChannel.send(`❌ <@${userId}>, Bạn không thể chat với bot ở channel khác. Hãy quay lại đây và dùng \`!start\`!`)
+                .catch(err => console.error("Lỗi gửi tin nhắn:", err));
+            } else {
+                console.error("Không tìm thấy saved channel");
+            }
+            return;
+        }
+    }
 
+
+  
     // Xử lý lệnh điều khiển
     if (content === '!start') {
         
@@ -81,7 +94,11 @@ client.on('messageCreate', async message => {
     }
 
     // 🔹 Kiểm tra xem user có trong danh sách đang chat không
-    if (!(await isActiveUser(userId))) return;
+    const isUserActive = await isActiveUser(userId);
+    if (!isUserActive) {
+        console.warn(`❌ User ${userId} chưa kích hoạt bot với !start. Bỏ qua.`);
+        return;if (!(await isActiveUser(userId))) return;
+    }
 
     // Lấy thông tin tổng hợp từ lịch sử chat
     // const userSummary = await getUserSummary(userId);
@@ -104,27 +121,6 @@ client.on('messageCreate', async message => {
             return message.reply(`✅ **Model đã được đổi thành: ${models[modelKey].name}**`);
         } else {
             return message.reply("❌ **Model không hợp lệ! Gõ `!model` để xem danh sách.**");
-        }
-    }
-    
-    if (!allowedCategoryIds.includes(currentCategory)) {
-        const savedChannelId = await getUserChannel(userId);
-        console.log(`📌 DEBUG: savedChannelId trong database = ${savedChannelId}`);
-        // Nếu đang ở channel đã lưu
-        if (savedChannelId === currentChannel.id) {
-            // Cho phép tiếp tục chat
-            return
-        }
-        else {
-            const savedChannel = await client.channels.fetch(savedChannelId).catch(console.error);
-            if (savedChannel) {
-                // Gửi thông báo vào channel đã lưu và tag user
-                savedChannel.send(`❌ <@${userId}>, Bạn không thể chat với bot ở channel khác. Hãy quay lại đây và dùng \`!start\`!`)
-                .catch(err => console.error("Lỗi gửi tin nhắn:", err));
-            } else {
-                console.error("Không tìm thấy saved channel");
-            }
-            return;
         }
     }   
   
@@ -213,7 +209,7 @@ client.on('messageCreate', async message => {
             }
         }
     }
-});
+    });
 
 
 function splitMessage(text, maxLength) {
@@ -233,45 +229,65 @@ function splitMessage(text, maxLength) {
     return parts;
 }
 
+
 /**
  * Chọn ngẫu nhiên một emoji từ danh sách.
  * @param {string[]} emojiList - Danh sách emoji.
  * @returns {string} - Một emoji ngẫu nhiên hoặc chuỗi rỗng nếu danh sách không tồn tại.
  */
-function randomEmoji(emojiList) {
-    if (!Array.isArray(emojiList) || emojiList.length === 0) return ''; // Tránh lỗi nếu danh sách không hợp lệ
-    return emojiList[Math.floor(Math.random() * emojiList.length)];
-}
 
 /**
  * Trả về emoji phù hợp dựa trên nội dung tin nhắn.
  * @param {string} text - Nội dung tin nhắn.
  * @returns {string} - Một emoji phù hợp.
  */
-function getContextEmoji(text) {
-    const lowerText = text.toLowerCase();
 
-    if (lowerText.includes('chào')) return randomEmoji(emoji.special.celebration || []);
-    if (lowerText.includes('cảm ơn' )) return randomEmoji(emoji.emotions.love || []);
-    if (lowerText.includes('game')) return randomEmoji(emoji.activities.games || []);
-    if (lowerText.includes('vui') || lowerText.includes('hạnh phúc')) return randomEmoji(emoji.emotions.happy || []);
-    if (lowerText.includes('buồn') || lowerText.includes('khóc')) return randomEmoji(emoji.emotions.sad || []);
-    if (lowerText.includes('tức giận')) return randomEmoji(emoji.emotions.angry || []);
-
-    return randomEmoji(emoji.special.magic || []); // Mặc định trả về emoji magic nếu không khớp
-}
 
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
     const emojiResponse = getContextEmoji(message.content);
-    try {
-        await message.react(emojiResponse);
-    } catch (error) {
-        console.error('Lỗi thêm emoji:', error);
+    
+    // Chỉ thêm reaction nếu emoji hợp lệ
+    if (emojiResponse && isValidEmoji(emojiResponse)) {
+        try {
+            await message.react(emojiResponse);
+        } catch (error) {
+            console.error('Lỗi thêm emoji:', error);
+        }
     }
+})
 });
+function getContextEmoji(text) {
+    const lowerText = text.toLowerCase();
+    let emojiList = [];
 
+    if (lowerText.includes('chào')) emojiList = emoji.special.celebration;
+    else if (lowerText.includes('cảm ơn')) emojiList = emoji.emotions.love;
+    // ... các điều kiện khác
+    else emojiList = emoji.special.magic;
+
+    // Lọc các emoji hợp lệ (chuỗi không rỗng)
+    const validEmojis = emojiList.filter(e => typeof e === "string" && e.trim().length > 0);
+    
+    // Fallback nếu không có emoji nào
+    return validEmojis.length > 0 ? 
+        randomEmoji(validEmojis) : 
+        '❓'; // Emoji dự phòng
+}
+
+function randomEmoji(emojiList) {
+    if (!Array.isArray(emojiList)) return '❓';
+    const filtered = emojiList.filter(e => e && typeof e === "string");
+    return filtered.length > 0 ? 
+        filtered[Math.floor(Math.random() * filtered.length)] : 
+        '❓';
+}
+
+function isValidEmoji(emoji) {
+    const emojiRegex = /(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)/gu;
+    return emojiRegex.test(emoji);
+}
 
 client.login(process.env.TOKEN);
 

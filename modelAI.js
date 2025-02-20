@@ -97,12 +97,12 @@ function getEmbedding(texts) {
 
         py.stdout.on("data", (chunk) => {
             data += chunk;
-            console.log("📥 [DEBUG] Python stdout:", chunk.toString());
+            //console.log("📥 [DEBUG] Python stdout:", chunk.toString());
         });
 
         py.stderr.on("data", (chunk) => {
             errorData += chunk;
-            console.error("❌ [DEBUG] Python stderr:", chunk.toString());
+            //console.error("❌ [DEBUG] Python stderr:", chunk.toString());
         });
 
         py.on("close", (code) => {
@@ -119,7 +119,7 @@ function getEmbedding(texts) {
                 if (result.error) {
                     reject(new Error(`Python Error: ${result.error}`));
                 } else {
-                    console.log("✅ [DEBUG] Embedding nhận được:", result);
+                    //console.log("✅ [DEBUG] Embedding nhận được:", result);
                     resolve(result);
                 }
             } catch (err) {

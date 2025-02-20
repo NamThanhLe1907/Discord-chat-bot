@@ -102,18 +102,28 @@ async function saveChatHistory(userId, role, content) {
 }
 
 // ✅ 5. Lấy lịch sử chat
-async function getChatHistory(userId, limit = 10) {
+async function getChatHistory(userId) {
     try {
-        return await Chat.find({ userId })
-            .sort({ timestamp: -1 }) // ✅ Lấy tin nhắn mới nhất trước
-            .limit(limit)
-            .lean()
-            .then(chats => chats.map(({ role, content }) => ({ role, content })));
+        const chatHistory = await Chat.find({ userId })
+            .sort({ timestamp: 1 }) // Sắp xếp từ cũ -> mới để giữ ngữ cảnh
+            .lean();
+
+        if (!chatHistory || chatHistory.length === 0) {
+            console.warn(`⚠️ Không có lịch sử chat nào cho user ${userId}`);
+            return { messages: [], fullText: "" };
+        }
+
+        // Gộp nội dung tin nhắn thành một đoạn văn bản
+        const fullText = chatHistory.map(chat => chat.content).join("\n");
+
+        return { messages: chatHistory, fullText };
+
     } catch (error) {
-        console.error("📦 Lỗi đọc dữ liệu:", error.message);
-        return [];
+        console.error("❌ Lỗi lấy lịch sử chat:", error.message);
+        return { messages: [], fullText: "" };
     }
 }
+
 
 // ✅ 6. Tìm kiếm user theo channel
 async function getUserChannel(userId) {
@@ -132,28 +142,38 @@ function cosineSimilarity(vecA, vecB) {
 
 async function vectorSearch(userId, query, k = 5) {
     try {
+        console.log(`📌 [DEBUG] Bắt đầu tìm kiếm vector cho user ${userId}`);
+        
         const queryEmbedding = await getEmbedding(query);
-        if (!queryEmbedding || queryEmbedding.length === 0) {
+        if (!queryEmbedding || !Array.isArray(queryEmbedding) || queryEmbedding.length === 0){
             console.warn("⚠️ Không thể tạo embedding, bỏ qua tìm kiếm vector.");
             return [];
         }
 
-        const userVectors = await VectorModel.find({ userId });
+        const userVectors = await VectorModel.find({ userId }).lean();
+        console.log(`📌 [DEBUG] Số lượng vectors trong DB: ${userVectors.length}`);
+        
         if (userVectors.length === 0) {
             console.warn("⚠️ Không có vector nào trong database.");
             return [];
         }
 
-        const results = userVectors.map(doc => ({
-            content: doc.content,
-            similarity: cosineSimilarity(queryEmbedding[0], doc.embedding)
-        }));
+        const results = userVectors.map(doc => {
+            if (queryEmbedding[0].length !== doc.embedding.length) {
+                console.error(`❌ Kích thước vector không khớp! Query: ${queryEmbedding[0].length}, DB: ${doc.embedding.length}`);
+                return null;
+            }
+            return { 
+                content: doc.content, 
+                similarity: cosineSimilarity(queryEmbedding[0], doc.embedding) 
+            };
+        }).filter(res => res !== null); // Lọc ra các phần tử hợp lệ
 
         return results
             .sort((a, b) => b.similarity - a.similarity)
             .slice(0, k)
             .map(res => res.content);
-
+      
     } catch (error) {
         console.error("❌ Lỗi tìm kiếm vector:", error.message);
         return [];
@@ -181,23 +201,25 @@ function analyzeTopics(text) {
 
 async function getUserProfile(userId) {
     try {
-        const history = await getChatHistory(userId, 100);
-        const latestMessage = history[history.length - 1]?.content || "";
+        const { fullText } = await getChatHistory(userId);
 
-        if (!latestMessage) return { commonTopics: [], preferences: [] };
+        if (!fullText || typeof fullText !== "string") {
+            console.warn(`⚠️ Lịch sử chat của user ${userId} trống hoặc không hợp lệ.`);
+            return { commonTopics: [], preferences: "Không có lịch sử chat." };
+        }
 
-        const similarMessages = await vectorSearch(userId, latestMessage, 3);
-        const topics = analyzeTopics(similarMessages.join(" "));
-
+        const topics = analyzeTopics(fullText);
         return {
             commonTopics: topics,
             preferences: detectPreferences(topics)
         };
+
     } catch (error) {
-        console.error("📦 Lỗi phân tích lịch sử:", error.message);
-        return { commonTopics: [], preferences: [] };
+        console.error("❌ Lỗi phân tích lịch sử:", error.message);
+        return { commonTopics: [], preferences: "Lỗi hệ thống, không thể phân tích." };
     }
 }
+
 
 // ✅ 9. Xuất các hàm
 module.exports = { 
